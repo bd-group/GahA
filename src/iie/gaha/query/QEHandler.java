@@ -14,7 +14,11 @@ import java.io.InputStream;
 import java.net.Socket;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 public class QEHandler implements Runnable {
 	private QE qe;
@@ -66,6 +70,9 @@ public class QEHandler implements Runnable {
 					dos.write(s.getBytes());
 					break;
 				case QueryType.QFACT:
+				{
+					// Query FACTs by fact_id (1-layer)
+					//
 					// request : HEADER | LEN | NR | [{FACT_ID(L),b(D),e(D),R_ID(L)]
 					// response: HEADER | LEN | NR | [{FACT_ID,ATTR,[FACT_ID]}](ziped)
 					int len = dis.readInt();
@@ -94,8 +101,8 @@ public class QEHandler implements Runnable {
 								len += gf.getLength();
 							}
 						}
-						System.out.println("[INFO] JOB " + j.jobId + " exec " + 
-								j.status + " in " + j.getLatency() + " ms");
+						System.out.println("[INFO] " + j + " in " + 
+								j.getLatency() + " ms");
 					}
 					dos.write(header);
 					dos.writeInt(len);
@@ -112,10 +119,52 @@ public class QEHandler implements Runnable {
 						}
 					}
 					break;
+				}
 				case QueryType.QFACT_GRAPH:
-					// request : HEADER | LEN | NR | [FACT_ID(long)]
-					// response: HEADER
+				{
+					// Search FACTs in depth network
+					//
+					// request : HEADER | LEN | NR | [{FACT_ID(L),b(D),e(D),R_ID(L)]
+					// response: HEADER | LEN | NR | [{FACT_ID,ATTR,[FACT_ID]}](ziped)
+					int len = dis.readInt();
+					int nr = dis.readInt();
+					byte[] payload = readBytes(len, dis);
+					QJobWaitGroup g = new QJobWaitGroup();
+					ArrayList<QJob> rj = new ArrayList<QJob>();
+					ConcurrentHashMap<Long, GenericFact> rg = 
+							new ConcurrentHashMap<Long, GenericFact>();
+					HashSet<Long> rs = new HashSet<Long>();
+
+					for (int i = 0; i < nr; i++) {
+						long fid = ByteBuffer.wrap(payload, i * 32, 8).getLong();
+						double b = ByteBuffer.wrap(payload, i * 32 + 8, 8).getDouble();
+						double e = ByteBuffer.wrap(payload, i * 32 + 16, 8).getDouble();
+						long rid = ByteBuffer.wrap(payload, i * 32 + 24, 8).getLong();
+						QJob job = 
+								new QJob(QJob.QOp.QFACT_GRAPH, new QJobArgs(fid, b, e, rid));
+						g.addToGroup(job);
+						QExec.execJob(job);
+					}
+					
+					len += __qfact_graph(g, rj, rs, rg);
+					
+					System.out.println("TARGETSIZE=" + rs.size() + " len=" + len);
+					
+					dos.write(header);
+					dos.writeInt(len);
+					dos.writeInt(rs.size());
+					
+					for (Map.Entry<Long, GenericFact> je : rg.entrySet()) {
+						GenericFact gf = je.getValue();
+						dos.writeLong(gf.fact_id);
+						dos.writeLong(gf.attr);
+						dos.writeLong(gf.facts.length);
+						for (int i = 0; i < gf.facts.length; i++) {
+							dos.writeLong(gf.facts[i]);
+						}
+					}
 					break;
+				}
 				}
 			}
 		} catch (EOFException e) {
@@ -131,6 +180,48 @@ public class QEHandler implements Runnable {
 				e.printStackTrace();
 			}
 		}
+	}
+	
+	private int __qfact_graph(QJobWaitGroup g, ArrayList<QJob> rj, HashSet<Long> rs,
+			ConcurrentHashMap<Long, GenericFact> rg) {
+		HashSet<QJob> nextJobs = new HashSet<QJob>();
+		int len = 0;
+
+		while (g.getSize() > 0) {
+			QJob j = g.getAnyJob();
+			List<GenericFact> gfs = (List<GenericFact>)j.r;
+			
+			rj.add(j);
+			if (gfs != null && gfs.size() > 0) {
+				for (GenericFact gf : gfs) {
+					len += gf.getLength();
+					rs.add(gf.fact_id);
+					rg.putIfAbsent(gf.fact_id, gf);
+					if (gf.facts != null && gf.facts.length > 0) {
+						for (Long _fid : gf.facts) {
+							// should do next layer job
+							if (!rs.contains(_fid)) {
+								nextJobs.add(
+										new QJob(QJob.QOp.QFACT_GRAPH, 
+												new QJobArgs(_fid, 
+														j.args.b, 
+														j.args.e, 
+														j.args.rid)));
+							}
+						}
+					}
+				}
+			}
+			System.out.println("[INFO] " + j + " in " + j.getLatency() + " ms");
+		}
+		for (QJob job : nextJobs) {
+			g.addToGroup(job);
+			QExec.execJob(job);
+		}
+		if (nextJobs.size() > 0)
+			return len + __qfact_graph(g, rj, rs, rg);
+		else
+			return len;
 	}
 
 	/**

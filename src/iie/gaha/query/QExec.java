@@ -128,8 +128,9 @@ public class QExec {
 	}
 	
 	// Query for Fact SubGraph:
-	// id + [time range] + relation -> Graph
-	public static Graph qFactGraph(long id, Double b, Double e, long rid) {
-		return null;
+	// id + [time range] + relation -> list<fid>
+	public static List<GenericFact> qFactGraph(long id, Double b, Double e, long rid) {
+		// SLOW IMPLEMENTATION
+		return qFact(id, b, e, rid);
 	}
 }

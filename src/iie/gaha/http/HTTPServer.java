@@ -1,20 +1,22 @@
-package iie.gaha.client;
+package iie.gaha.http;
 
-import iie.gaha.common.GenericFact;
+import iie.gaha.client.QEClientCore;
 
 import java.util.ArrayList;
 import java.util.List;
 
-public class QEClient {
+import org.eclipse.jetty.server.Server;
 
+public class HTTPServer {
+	
 	public static class Option {
 	     String flag, opt;
 	     public Option(String flag, String opt) { this.flag = flag; this.opt = opt; }
 	}
 	
+
 	/**
 	 * @param args
-	 * @throws Exception 
 	 */
 	public static void main(String[] args) {
 		List<String> argsList = new ArrayList<String>();  
@@ -53,16 +55,13 @@ public class QEClient {
 		}
 		
 		String uri = null;
-		String outsideIP = null;
-		String nodeName = null;
-		boolean isSetOutsideIP = false;
+		int httpPort = 33033;
 		int verbose = 0;
 		
 		for (Option o : optsList) {
 			if (o.flag.equals("-h")) {
 				// print help message
 				System.out.println("-h     : print this help.");
-				System.out.println("-uri   : redis uri");
 			}
 			if (o.flag.equals("-uri")) {
 				// set redis pool uri
@@ -81,13 +80,13 @@ public class QEClient {
 			if (o.flag.equals("-vvv")) {
 				verbose += 3;
 			}
-			if (o.flag.equals("-ip")) {
-				// set outside accessible IP address hint
+			if (o.flag.equals("-p")) {
+				// set http listen port
 				if (o.opt == null) {
-					System.out.println("-ip IPAddressHint");
+					System.out.println("-p HTTP_LISTEN_PORT");
 					System.exit(0);
 				}
-				outsideIP = o.opt;
+				httpPort = Integer.parseInt(o.opt);
 			}
 		}
 		
@@ -95,7 +94,6 @@ public class QEClient {
 			System.out.println("Expect redis pool uri, use -uri");
 			System.exit(0);
 		}
-		
 		QEClientCore qcc = new QEClientCore();
 		try {
 			qcc.init(uri);
@@ -103,33 +101,16 @@ public class QEClient {
 			e.printStackTrace();
 			System.exit(0);
 		}
+		
+		// Start HTTP server
+		Server server = new Server(httpPort);
+		server.setHandler(new HTTPHandler(qcc));
 		try {
-			List<GenericFact> gfs = qcc.qFactGraph(49500, 0D, 0D, -1);
-			if (gfs != null && gfs.size() > 0) {
-				for (GenericFact gf : gfs) {
-					System.out.println("ID " + gf.fact_id + 
-							" follows=" + gf.facts.length + ", fans=" + gf.attr);
-				}
-			}
+			server.start();
 		} catch (Exception e) {
 			e.printStackTrace();
 		}
 		qcc.quit();
-		
-		/*//long fid = 1095179000;
-		long fid = 49500;
-		long jobId = qe.submitToQjob(new QJob(QJob.QOp.QFACT,
-				new QJobArgs(fid, 0D, 0D, -1)));
-
-		QJob j = qe.getJob(jobId);
-		if (j != null) {
-			List<Long> ids = (List<Long>)j.r;
-			for (Long id : ids) {
-				System.out.print(id + ",");
-			}
-			System.out.println("\nID " + fid + " follows " + ids.size() + " user(s).");
-		}
-		System.out.println("END");
-		*/
 	}
+
 }

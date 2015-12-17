@@ -80,4 +80,13 @@ public class QJob {
 	public void setGroup(QJobWaitGroup group) {
 		this.group = group;
 	}
+	
+	public String toString() {
+		return "JOB " + jobId + " " + qop +
+				" FID=" + args.id +
+				" b=" + args.b + 
+				" e=" + args.e + 
+				" rid= " + args.id +
+				" exec " + status;
+	}
 }

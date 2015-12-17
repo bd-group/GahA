@@ -52,6 +52,46 @@ public class QEClientExec {
 		}
 		return r;
 	}
+	
+	public static List<GenericFact> __qFactGraph(SocketHashEntry she, long fid,
+			double b, double e, long rid) throws IOException {
+		List<GenericFact> r = null;
+		long id = she.getFreeSocket();
+		if (id == -1)
+			throw new IOException("Could not find free socket for server: " +
+					she.hostname + ":" + she.port);
+		DataOutputStream storeos = she.map.get(id).dos;
+		DataInputStream storeis = she.map.get(id).dis;
+		
+		// request : HEADER | LEN | NR | [{FACT_ID(L),b(D),e(D),R_ID(L)]
+		// response: HEADER | LEN | NR | [{FACT_ID,ATTR,[FACT_ID]}](ziped)
+		byte[] header = new byte[4];
+		header[0] = QueryType.QFACT_GRAPH;
+		header[1] = QueryFlag.ACCEPT_JAVA_OBJ;
+		
+		try {
+			synchronized (storeos) {
+				storeos.write(header);
+				storeos.writeInt(32);
+				storeos.writeInt(1);
+
+				// Query args
+				storeos.writeLong(fid);
+				storeos.writeDouble(b);
+				storeos.writeDouble(e);
+				storeos.writeLong(rid);
+				storeos.flush();
+			}
+			r = __handleInput4GFacts(storeis);
+			she.setFreeSocket(id);
+		} catch (Exception e1) {
+			System.out.println("__qFact send/recv failed: " + e1.getMessage() + 
+					" r?null=" + (r == null ? true : false));
+			// remove this socket do reconnect?
+			she.delFromSockets(id);
+		}
+		return r;
+	}
 
 	private static List<GenericFact> __handleInput4GFacts(
 			DataInputStream dis) throws IOException {

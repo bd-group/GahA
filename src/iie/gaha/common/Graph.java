@@ -1,47 +1,19 @@
 package iie.gaha.common;
 
-import java.util.List;
+import java.util.concurrent.ConcurrentHashMap;
 
 public class Graph {
-	private List<Long> nodes;
-	private List<Object> nodesAttr;
-	private List<Long> efrom;
-	private List<Long> eto;
+	private ConcurrentHashMap<Long, GenericFact> g;
+	
+	public Graph() {
+		this.setG(new ConcurrentHashMap<Long, GenericFact>());
+	}
 
-	public Graph(List<Long> nodes, List<Long> efrom, List<Long> eto) {
-		this.nodes = nodes;
-		this.efrom = efrom;
-		this.eto = eto;
+	public ConcurrentHashMap<Long, GenericFact> getG() {
+		return g;
 	}
-	
-	public List<Long> getNodes() {
-		return nodes;
-	}
-	
-	public List<Object> getNodesAttr() {
-		return nodesAttr;
-	}
-	
-	public List<Long> getEfrom() {
-		return efrom;
-	}
-	
-	public List<Long> getEto() {
-		return eto;
-	}
-	
-	public long getNodeCount() {
-		return nodes.size();
-	}
-	
-	public long getEdgeCount() {
-		return efrom.size();
-	}
-	
-	public Edge getEdge(int idx) {
-		if (idx >= 0 && idx < efrom.size())
-			return new Edge(efrom.get(idx), eto.get(idx));
-		else
-			return null;
+
+	public void setG(ConcurrentHashMap<Long, GenericFact> g) {
+		this.g = g;
 	}
 }

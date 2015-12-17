@@ -9,6 +9,7 @@ import java.net.SocketException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
@@ -20,6 +21,8 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import redis.clients.jedis.Jedis;
+import redis.clients.jedis.ScanParams;
+import redis.clients.jedis.ScanResult;
 import redis.clients.jedis.Tuple;
 import redis.clients.jedis.exceptions.JedisException;
 
@@ -91,7 +94,7 @@ public class QEClientCore {
 			if (active != null && active.size() > 0) {
 				for (Tuple t : active) {
 					// translate ServerName to IP address
-					String ipport = jedis.hget("mm.dns", t.getElement());
+					String ipport = jedis.hget("qe.dns", t.getElement());
 
 					// update server ID->Name map
 					if (ipport == null) {
@@ -225,6 +228,41 @@ public class QEClientCore {
 		return true;
 	}
 	
+	public List<Long> __random_keys(int tnr) {
+		Jedis j = RPoolProxy.rpL1.getResource();
+		ScanParams sp = new ScanParams();
+		boolean isDone = false;
+		String cursor = ScanParams.SCAN_POINTER_START;
+		sp.match("F*");
+		int cnr = 0;
+		Random rand = new Random();
+		ArrayList<Long> res = new ArrayList<Long>();
+		
+		try {
+			while (!isDone) {
+				ScanResult<String> sr = j.scan(cursor, sp);
+				for (String key : sr.getResult()) {
+					if (rand.nextBoolean()) {
+						long l = Long.parseLong(key.substring(1));
+						res.add(l);
+						cnr++;
+						if (cnr >= tnr) break;
+					}
+				}
+				cursor = sr.getStringCursor();
+				if (cursor.equalsIgnoreCase("0")) {
+					isDone = true;
+				}
+				if (cnr >= tnr) break;
+			}
+		} catch (Exception e) {
+			e.printStackTrace();
+		} finally {
+			RPoolProxy.rpL1.putInstance(j);
+		}
+		return res;
+	}
+	
 	private Set<String> __select_targets() throws Exception {
 		if (keyList.size() == 0) {
 			throw new Exception("No active QE server (" + keyList.size() + ").");
@@ -264,6 +302,64 @@ public class QEClientCore {
 					// then try our best to survive.
 					try {
 						r = QEClientExec.__qFact(she, fid, b, e, rid);
+						saved.add(server);
+					} catch (Exception e1) {
+						if (failed.containsKey(server)) {
+							failed.put(server, failed.get(server) + 1);
+						} else
+							failed.put(server, new Long(1));
+						System.out.println("Query " + fid + " to " + server + 
+								" failed: (" + e1.getMessage() + ") " +
+										"for " + failed.get(server) + " times.");
+					}
+				} else {
+					// this means target server has no current usable connection, we try to use 
+					// another server
+				}
+			}
+			if (saved.size() < 1) {
+				List<String> remains = new ArrayList<String>(keyList);
+				remains.removeAll(saved);
+				for (Map.Entry<String, Long> e1 : failed.entrySet()) {
+					if (e1.getValue() > 9) {
+						remains.remove(e1.getKey());
+					}
+				}
+				if (remains.size() == 0)
+					break;
+				targets.clear();
+				for (int i = saved.size(); i < 1; i++) {
+					targets.add(remains.get(rand.nextInt(remains.size())));
+				}
+			} else break;
+		} while (true);
+		
+		if (saved.size() == 0) {
+			throw new Exception("Error in Query: " + fid + 
+					" [" + b + "," + e + "] " + rid);
+		}
+		return r;
+	}
+	
+	public List<GenericFact> qFactGraph(long fid, double b, double e, long rid) throws Exception {
+		return __qFactGraph(__select_targets(), fid, b, e, rid);
+	}
+	
+	private List<GenericFact> __qFactGraph(Set<String> targets, long fid,
+			double b, double e, long rid) throws Exception {
+		Random rand = new Random();
+		Set<String> saved = new TreeSet<String>();
+		HashMap<String, Long> failed = new HashMap<String, Long>();
+		List<GenericFact> r = null;
+		
+		do {
+			for (String server : targets) {
+				SocketHashEntry she = socketHash.get(server);
+				if (she.probSelected()) {
+					// BUG-XXX: we have to check if we can recover from this exception, 
+					// then try our best to survive.
+					try {
+						r = QEClientExec.__qFactGraph(she, fid, b, e, rid);
 						saved.add(server);
 					} catch (Exception e1) {
 						if (failed.containsKey(server)) {
