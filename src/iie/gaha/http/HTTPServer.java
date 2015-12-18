@@ -94,7 +94,7 @@ public class HTTPServer {
 			System.out.println("Expect redis pool uri, use -uri");
 			System.exit(0);
 		}
-		QEClientCore qcc = new QEClientCore();
+		final QEClientCore qcc = new QEClientCore();
 		try {
 			qcc.init(uri);
 		} catch (Exception e) {
@@ -110,7 +110,14 @@ public class HTTPServer {
 		} catch (Exception e) {
 			e.printStackTrace();
 		}
-		qcc.quit();
+		// shutdown hook
+		Runtime.getRuntime().addShutdownHook(new Thread() {
+			@Override
+			public void run() {
+				System.out.println("Shutdown HTTP server, release resources.");
+				qcc.quit();
+			}
+		});
 	}
 
 }
